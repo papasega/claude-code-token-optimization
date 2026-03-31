@@ -210,7 +210,7 @@ grep -A3 "FAILED" test_output.txt            # Failed tests with context
 
 ```
 
-```
+
 
 ### 3b. Create skill : `context-manager`
 
@@ -237,10 +237,10 @@ description: Manage context window health during long sessions.
 ## Optimal /compact command
 ```
 
-/compact Focus on: modified files list, current task state, failing test names, key decisions.
+`/compact` Focus on: modified files list, current task state, failing test names, key decisions.
 Discard: exploration history, verbose tool outputs, failed attempts.
 
-```
+
 
 ## Subagent delegation (zero main context cost)
 For ANY research/exploration task, use this pattern:
@@ -255,7 +255,7 @@ Subagents run in **separate context windows** → your main context stays clean.
 - [ ] Use subagents for codebase exploration
 - [ ] Never `cat` large files — always `grep/head/tail` first
 - [ ] Prefer Bash commands over Read tool for large files
-```
+
 
 ### 3c. Create skill : `model-selector`
 
@@ -306,7 +306,7 @@ effort: low
 - Haiku ≈ 10× cheaper than Sonnet for same token count
 - `MAX_THINKING_TOKENS=8000` caps runaway thinking cost on simple tasks
 
-```
+
 
 ### 3d. Create skill : `fetch-not-read`
 
@@ -382,7 +382,7 @@ grep -r "function_name" --include="*.py" -l   # Files containing it
 | > 200 lines      | Use Bash extraction ALWAYS       |
 | Entire directory | NEVER read all — use grep/find  |
 
-```
+
 
 ---
 
@@ -684,7 +684,7 @@ else
 echo "code-explorer.md already exists — skipped"
 fi
 
-```
+
 
 ---
 
