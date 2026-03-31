@@ -1,12 +1,13 @@
 # Claude Code — Token Self-Optimization Prompt
 
-> **Usage :** Paste this prompt directly into a Claude Code session.  
-> Claude will run the audit and optimization autonomously, phase by phase.  
+> **Usage :** Paste this prompt directly into a Claude Code session.
+> Claude will run the audit and optimization autonomously, phase by phase.
 > **Series :** Companion to [claude-code-best-practice-playbook](https://github.com/papasega/claude-code-best-practice-playbook) — full setup & workflow reference.
 
 > **Version :** Claude Code ≥ 2.1 · Last updated: 2026-03 · Verify with `claude --version`
 
 ---
+
 ![Claude Code Best Practice](./ndapli/ccto_psw.png)
 
 ## Context & Objective
@@ -86,17 +87,18 @@ print(f'  Project CLAUDE.md: ~{p} tokens')
 
 In the current CLAUDE.md files, identify and tag each section:
 
-| Category | Action |
-|---|---|
-| Workflow-specific (PR review, DB migrations, test patterns) | → Move to Skill |
-| Verbose explanations (>3 lines for one rule) | → Compress to 1 line |
-| Context Claude already knows (basic Python, git, etc.) | → Delete |
-| Old/deprecated patterns | → Delete |
-| HTML comments `<!-- notes -->` inside CLAUDE.md | → Keep (they are stripped from context automatically) |
+| Category                                                    | Action                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------ |
+| Workflow-specific (PR review, DB migrations, test patterns) | → Move to Skill                                       |
+| Verbose explanations (>3 lines for one rule)                | → Compress to 1 line                                  |
+| Context Claude already knows (basic Python, git, etc.)      | → Delete                                              |
+| Old/deprecated patterns                                     | → Delete                                              |
+| HTML comments `<!-- notes -->` inside CLAUDE.md           | → Keep (they are stripped from context automatically) |
 
 ### 2b. Rewrite `~/.claude/CLAUDE.md` (global)
 
 **Hard limit : 200 lines.** Content to keep:
+
 - Identity and communication style
 - Universal code standards (language, formatting, logging)
 - Tool preferences (e.g. loguru over stdlib, pathlib over os.path)
@@ -113,12 +115,13 @@ Discard: exploration history, failed attempts, verbose tool output logs.
 ### 2c. Rewrite `.claude/CLAUDE.md` (project)
 
 **Hard limit : 150 lines.** Content to keep:
+
 - Project architecture (1 paragraph max)
 - Key commands: build / test / deploy / lint
 - Directory structure (top-level only)
 - Critical project-specific rules (3–5 rules max)
 
-**Do NOT copy global rules** — they are already loaded from `~/.claude/CLAUDE.md`.  
+**Do NOT copy global rules** — they are already loaded from `~/.claude/CLAUDE.md`.
 **Move all PR / DB / deploy workflows** → Skills (Phase 3).
 
 ### 2d. Report token delta
@@ -143,7 +146,7 @@ print(f'Project CLAUDE.md after: ~{tokens(\".claude/CLAUDE.md\")} tokens')
 
 ## PHASE 3 — SKILLS MIGRATION (on-demand = zero startup cost)
 
-> Skills load **only when invoked**. Moving workflow docs from CLAUDE.md to skills = **free tokens at startup**.  
+> Skills load **only when invoked**. Moving workflow docs from CLAUDE.md to skills = **free tokens at startup**.
 > Each SKILL.md must be ≤ 80 lines, concise, no padding.
 
 ### 3a. Create skill : `pdf-to-context`
@@ -173,32 +176,40 @@ with pdfplumber.open(sys.argv[1]) as pdf:
     text = '\n'.join(p.extract_text() or '' for p in pdf.pages)
     print(text[:50000])
 " "$FILE"
+
 ```
 
 ### Step 2: Targeted extraction — answer the question, don't dump everything
+
 1. Identify the USER'S QUESTION first
 2. Extract only sections relevant to that question
 3. Filter: `grep -A5 -B2 "keyword" extracted.md`
 4. Hard cap: max 5 000 tokens of document content per question
 
 ### Token budget per task type
-| Task | Max document tokens |
-|------|-------------------|
-| Simple factual question | 2 000 |
-| Analysis / comparison | 10 000 |
-| Full summary | Use subagent (isolated context) |
+
+| Task                    | Max document tokens             |
+| ----------------------- | ------------------------------- |
+| Simple factual question | 2 000                           |
+| Analysis / comparison   | 10 000                          |
+| Full summary            | Use subagent (isolated context) |
 
 ### For DOCX files
+
 ```bash
 python3 -c "import docx2txt, sys; print(docx2txt.process(sys.argv[1])[:50000])" "$FILE"
+
 ```
 
 ### For large logs / test output — never cat the full file
+
 ```bash
 tail -100 logfile.log                        # Last 100 lines
 grep -i "error\|warning\|fail" log.txt       # Errors only
 grep -A3 "FAILED" test_output.txt            # Failed tests with context
+
 ```
+
 ```
 
 ### 3b. Create skill : `context-manager`
@@ -225,8 +236,10 @@ description: Manage context window health during long sessions.
 
 ## Optimal /compact command
 ```
+
 /compact Focus on: modified files list, current task state, failing test names, key decisions.
 Discard: exploration history, verbose tool outputs, failed attempts.
+
 ```
 
 ## Subagent delegation (zero main context cost)
@@ -272,20 +285,27 @@ description: Choose the right model and effort level per task to minimize cost.
 /effort low     # Fast, cheap — routine tasks
 /effort medium  # Default balanced (recommended)
 /effort high    # Deep reasoning — justify the cost
+
 ```
 
 ## Subagent model override (in agent frontmatter)
+
 ```yaml
+
 ---
+
 model: haiku
 effort: low
+
 ---
 ```
 
 ## Cost multipliers reference
+
 - Extended thinking (high effort) = output tokens billed → 3–5× more expensive
 - Haiku ≈ 10× cheaper than Sonnet for same token count
 - `MAX_THINKING_TOKENS=8000` caps runaway thinking cost on simple tasks
+
 ```
 
 ### 3d. Create skill : `fetch-not-read`
@@ -312,52 +332,70 @@ Bash commands let you extract **exactly** what you need.
 ```bash
 grep -n "^def \|^class " file.py          # All functions/classes with line numbers
 grep -n "^export\|^const\|^function" file.ts
+
 ```
 
 ### Extract one function
+
 ```bash
 sed -n '/^def target_function/,/^def /p' file.py | head -60
+
 ```
 
 ### Imports only
+
 ```bash
 head -30 file.py
+
 ```
 
 ### Search for specific logic
+
 ```bash
 grep -n -A10 "keyword" file.py
 grep -rn "function_name" --include="*.py" | head -20
+
 ```
 
 ### Large test output (never cat)
+
 ```bash
 grep -E "FAILED|ERROR|passed [0-9]+" pytest_output.txt | tail -30
 grep -A5 "FAILED" pytest_output.txt
+
 ```
 
 ### Directory survey (never read all files)
+
 ```bash
 find . -name "*.py" | head -20
 grep -r "function_name" --include="*.py" -l   # Files containing it
+
 ```
 
 ## Token budget for file reads
-| File size | Strategy |
-|-----------|----------|
-| < 50 lines | OK to Read directly |
-| 50–200 lines | Read only if full context needed |
-| > 200 lines | Use Bash extraction ALWAYS |
-| Entire directory | NEVER read all — use grep/find |
+
+| File size        | Strategy                         |
+| ---------------- | -------------------------------- |
+| < 50 lines       | OK to Read directly              |
+| 50–200 lines    | Read only if full context needed |
+| > 200 lines      | Use Bash extraction ALWAYS       |
+| Entire directory | NEVER read all — use grep/find  |
+
 ```
 
 ---
 
-## PHASE 4 — SETTINGS OPTIMIZATION
+## PHASE 4 — SETTINGS & SECURITY OPTIMIZATION
 
-### 4a. Update `~/.claude/settings.json` (global defaults)
+### 4a. Update `~/.claude/settings.json` (global defaults + git safety)
 
-Read the current file, then merge these optimizations (**do not overwrite — merge**):
+Read the current file, then merge these optimizations (**do not overwrite — merge**).
+
+This step adds **three layers of protection** :
+- `deny` — hard block (git push, rm -rf, curl, edit secrets)
+- `ask` — Claude asks for your confirmation before executing (git commit, checkout)
+- `allow` — pre-approved safe commands (git diff, grep, find)
 
 ```bash
 python3 << 'EOF'
@@ -376,29 +414,78 @@ settings.setdefault("effortLevel", "medium")
 settings.setdefault("env", {})
 settings["env"]["MAX_THINKING_TOKENS"] = "8000"
 
+# ── PERMISSIONS ─────────────────────────────────────────────
 settings.setdefault("permissions", {})
+
+# Allow: pre-approved safe commands (no confirmation prompt)
+settings["permissions"].setdefault("allow", [])
+allow_rules = [
+    "Bash(git diff *)", "Bash(git log *)", "Bash(git status *)",
+    "Bash(wc *)", "Bash(grep *)", "Bash(find *)",
+    "Bash(head *)", "Bash(tail *)", "Bash(sed -n *)"
+]
+for rule in allow_rules:
+    if rule not in settings["permissions"]["allow"]:
+        settings["permissions"]["allow"].append(rule)
+
+# Deny: hard block — Claude cannot execute these under any circumstances
 settings["permissions"].setdefault("deny", [])
 deny_rules = [
+    # Protect secrets
     "Read(./.env)", "Read(./.env.*)",
-    "Read(./secrets/**)", "Read(./.git/objects/**)"
+    "Read(./secrets/**)", "Read(./.git/objects/**)",
+    "Edit(.env)", "Edit(.env.*)",
+    "Edit(./secrets/**)", "Edit(.git/**)",
+    # Block destructive git operations
+    "Bash(git push *)", "Bash(git push)",
+    "Bash(git push --force *)",
+    "Bash(git reset --hard *)",
+    # Block destructive system commands
+    "Bash(rm -rf *)",
+    # Block network exfiltration
+    "Bash(curl *)", "Bash(wget *)"
 ]
 for rule in deny_rules:
     if rule not in settings["permissions"]["deny"]:
         settings["permissions"]["deny"].append(rule)
 
+# Ask: Claude requests your confirmation before executing
+settings["permissions"].setdefault("ask", [])
+ask_rules = [
+    "Bash(git commit *)",
+    "Bash(git checkout *)",
+    "Bash(git branch -d *)",
+    "Bash(git stash *)"
+]
+for rule in ask_rules:
+    if rule not in settings["permissions"]["ask"]:
+        settings["permissions"]["ask"].append(rule)
+
+# ── ATTRIBUTION ─────────────────────────────────────────────
+# Remove Co-Authored-By: Claude from git commits and PRs
+settings["attribution"] = {"commit": "", "pr": ""}
+
+# ── GITIGNORE ───────────────────────────────────────────────
+settings["respectGitignore"] = True
+
 with open(path, "w") as f:
     json.dump(settings, f, indent=2)
 
 print("~/.claude/settings.json updated")
-print(f"   model: {settings['model']}")
-print(f"   effortLevel: {settings['effortLevel']}")
-print(f"   MAX_THINKING_TOKENS: {settings['env']['MAX_THINKING_TOKENS']}")
+print(f"   model          : {settings['model']}")
+print(f"   effortLevel    : {settings['effortLevel']}")
+print(f"   MAX_THINKING   : {settings['env']['MAX_THINKING_TOKENS']}")
+print(f"   deny rules     : {len(settings['permissions']['deny'])}")
+print(f"   ask rules      : {len(settings['permissions']['ask'])}")
+print(f"   allow rules    : {len(settings['permissions']['allow'])}")
+print(f"   attribution    : commit='{settings['attribution']['commit']}' pr='{settings['attribution']['pr']}'")
+print(f"   respectGitignore: {settings['respectGitignore']}")
 EOF
 ```
 
 ### 4b. Create `.claude/hooks/guard-large-read.sh` (large file interceptor)
 
-This hook **blocks accidental reads of files > 300 lines** and suggests Bash alternatives.  
+This hook **blocks accidental reads of files > 300 lines** and suggests Bash alternatives.
 Estimated savings: **50,000+ tokens per long session**.
 
 > **Implementation :** External script (not inline JSON) — aligned with the [playbook §6](./claude-code-best-practice-playbook.md#6-hooks--deterministic-guardrails). Easier to test independently with `echo '{...}' | bash .claude/hooks/guard-large-read.sh`.
@@ -446,12 +533,89 @@ chmod +x .claude/hooks/guard-large-read.sh
 echo "guard-large-read.sh created and made executable"
 ```
 
-Then reference it in `.claude/settings.json` hooks section:
+### 4c. Create `.claude/hooks/validate-bash.sh` (dangerous command interceptor)
+
+This hook is a **second line of defense** for Bash commands. While `deny` rules block known patterns, this script catches variants that pattern matching might miss (e.g., `command git push`, `env GIT_SSH=... git push`).
+
+```bash
+cat > .claude/hooks/validate-bash.sh << 'HOOKEOF'
+#!/bin/bash
+# validate-bash.sh — PreToolUse hook for Bash commands
+# Blocks dangerous shell commands before Claude Code executes them.
+# Exit code 2 = BLOCK, exit code 0 = ALLOW
+set -euo pipefail
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(data.get('tool_input', {}).get('command', ''))
+" 2>/dev/null || echo "")
+
+if [ -z "$COMMAND" ]; then
+  exit 0
+fi
+
+# git push (any variant)
+if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)git\s+push(\s|$)'; then
+  echo '{"decision":"block","reason":"git push blocked. Push manually."}' >&2
+  exit 2
+fi
+
+# git reset --hard
+if echo "$COMMAND" | grep -qE 'git\s+reset\s+--hard'; then
+  echo '{"decision":"block","reason":"git reset --hard blocked. Destructive operation."}' >&2
+  exit 2
+fi
+
+# rm -rf (recursive force delete)
+if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)rm\s+-[a-zA-Z]*r[a-zA-Z]*f|rm\s+-[a-zA-Z]*f[a-zA-Z]*r'; then
+  echo '{"decision":"block","reason":"rm -rf blocked. Dangerous recursive delete."}' >&2
+  exit 2
+fi
+
+# curl / wget (prevent network exfiltration)
+if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)(curl|wget)\s'; then
+  echo '{"decision":"block","reason":"curl/wget blocked. No unauthorized network requests."}' >&2
+  exit 2
+fi
+
+# chmod 777 (overly permissive)
+if echo "$COMMAND" | grep -qE 'chmod\s+777'; then
+  echo '{"decision":"block","reason":"chmod 777 blocked. Overly permissive."}' >&2
+  exit 2
+fi
+
+# Writing to system directories
+if echo "$COMMAND" | grep -qE '(>|>>)\s*/(etc|usr|var|boot|sys)/'; then
+  echo '{"decision":"block","reason":"Writing to system directory blocked."}' >&2
+  exit 2
+fi
+
+exit 0
+HOOKEOF
+
+chmod +x .claude/hooks/validate-bash.sh
+echo "validate-bash.sh created and made executable"
+```
+
+### 4d. Reference both hooks in `.claude/settings.json`
+
+Add the hooks section to your project or global settings. Both hooks fire on every tool call — `guard-large-read` on `Read`, `validate-bash` on `Bash`.
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash.sh"
+          }
+        ]
+      },
       {
         "matcher": "Read",
         "hooks": [
@@ -511,12 +675,15 @@ Return a JSON block:
   "files_read": 3,
   "grep_calls": 5
 }
+
 ```
+
 AGENTEOF
 echo "code-explorer.md created"
 else
 echo "code-explorer.md already exists — skipped"
 fi
+
 ```
 
 ---
@@ -527,7 +694,7 @@ Run the full verification suite and generate the savings report:
 
 ```bash
 python3 << 'EOF'
-import os, glob
+import os, glob, json
 
 def tokens(path):
     try:
@@ -547,6 +714,7 @@ print("=" * 60)
 print("CLAUDE CODE TOKEN OPTIMIZATION — FINAL REPORT")
 print("=" * 60)
 
+# ── CLAUDE.md ─────────────────────────────────────────────
 g_tokens = tokens("~/.claude/CLAUDE.md")
 p_tokens = tokens(".claude/CLAUDE.md")
 g_lines  = lines("~/.claude/CLAUDE.md")
@@ -557,6 +725,7 @@ print(f"  Global  : {g_lines} lines — ~{g_tokens} tokens")
 print(f"  Project : {p_lines} lines — ~{p_tokens} tokens")
 print(f"  Total startup context: ~{g_tokens + p_tokens} tokens")
 
+# ── Skills ────────────────────────────────────────────────
 skill_files = glob.glob(".claude/skills/*/SKILL.md")
 skill_tokens = sum(tokens(f) for f in skill_files)
 print(f"\nSkills (on-demand — zero startup cost)")
@@ -565,44 +734,86 @@ for f in skill_files:
     print(f"  {os.path.basename(os.path.dirname(f))}: ~{t} tokens")
 print(f"  Total skill content: ~{skill_tokens} tokens (loaded only when invoked)")
 
+# ── Subagents ─────────────────────────────────────────────
 agent_files = glob.glob(".claude/agents/*.md")
 print(f"\nSubagents configured: {len(agent_files)}")
 for f in agent_files:
     print(f"  {os.path.basename(f)}")
 
+# ── Settings & Security ──────────────────────────────────
 settings_path = os.path.expanduser("~/.claude/settings.json")
 try:
-    import json
     with open(settings_path) as f:
         s = json.load(f)
+    perms = s.get('permissions', {})
+    attr = s.get('attribution', {})
     print(f"\nSettings")
-    print(f"  model       : {s.get('model', 'not set')}")
-    print(f"  effortLevel : {s.get('effortLevel', 'not set')}")
-    print(f"  MAX_THINKING: {s.get('env', {}).get('MAX_THINKING_TOKENS', 'not set')}")
+    print(f"  model            : {s.get('model', 'not set')}")
+    print(f"  effortLevel      : {s.get('effortLevel', 'not set')}")
+    print(f"  MAX_THINKING     : {s.get('env', {}).get('MAX_THINKING_TOKENS', 'not set')}")
+    print(f"  respectGitignore : {s.get('respectGitignore', 'not set')}")
+    print(f"  attribution      : commit='{attr.get('commit', 'not set')}' pr='{attr.get('pr', 'not set')}'")
+    print(f"\nPermissions")
+    print(f"  deny rules  : {len(perms.get('deny', []))}")
+    for r in perms.get('deny', []):
+        print(f"    ✗ {r}")
+    print(f"  ask rules   : {len(perms.get('ask', []))}")
+    for r in perms.get('ask', []):
+        print(f"    ? {r}")
+    print(f"  allow rules : {len(perms.get('allow', []))}")
+    for r in perms.get('allow', []):
+        print(f"    ✓ {r}")
 except:
     print("\nCould not read settings.json")
 
-print(f"\nOPTIMIZATION COMPLETE")
+# ── Hooks ─────────────────────────────────────────────────
+hook_files = glob.glob(".claude/hooks/*.sh") + glob.glob(os.path.expanduser("~/.claude/hooks/*.sh"))
+print(f"\nHooks installed: {len(hook_files)}")
+for f in hook_files:
+    print(f"  {f} — {'executable' if os.access(f, os.X_OK) else 'NOT executable [!]'}")
+
+# ── Git safety check ──────────────────────────────────────
+git_blocked = any('git push' in r for r in perms.get('deny', []))
+rm_blocked = any('rm -rf' in r for r in perms.get('deny', []))
+curl_blocked = any('curl' in r for r in perms.get('deny', []))
+commit_ask = any('git commit' in r for r in perms.get('ask', []))
+
+print(f"\nSecurity status")
+print(f"  git push blocked     : {'[OK]' if git_blocked else '[FAIL] NOT PROTECTED'}")
+print(f"  rm -rf blocked       : {'[OK]' if rm_blocked else '[FAIL] NOT PROTECTED'}")
+print(f"  curl/wget blocked    : {'[OK]' if curl_blocked else '[FAIL] NOT PROTECTED'}")
+print(f"  git commit requires confirmation : {'[OK]' if commit_ask else '[WARN] auto-allowed'}")
+print(f"  attribution suppressed : {'[OK]' if attr.get('commit') == '' else '[WARN] Claude appears in commits'}")
+
+print(f"\n{'=' * 60}")
+print(f"OPTIMIZATION COMPLETE")
+print(f"{'=' * 60}")
 print(f"   Startup context      : ~{g_tokens + p_tokens} tokens (target ≤ 800)")
 print(f"   Skills offloaded     : ~{skill_tokens} tokens (zero cost until invoked)")
 print(f"   Large file hook      : active (blocks files > 300 lines)")
+print(f"   Bash safety hook     : active (blocks git push, rm -rf, curl)")
 print(f"   Thinking cap         : MAX_THINKING_TOKENS=8000")
 print(f"   Cheap exploration    : haiku subagent at ~10x lower cost")
+print(f"   Git safety           : deny push, ask commit, attribution suppressed")
 EOF
 ```
 
 Produce a final savings summary. Cross-reference with the full [Token Optimization Table in the playbook §14](./claude-code-best-practice-playbook.md#14-token-optimization-table) for the complete list.
 
-| Optimization lever | Mechanism | Estimated savings |
-|---|---|---|
-| CLAUDE.md < 200 lines | Removed workflow bloat | 2,000-10,000 tokens/session |
-| Skills on-demand | Zero cost at startup | 1,000-5,000 tokens/session |
-| Large file hook (>300 lines) | PreToolUse external script | 10,000-50,000 tokens/session |
-| `MAX_THINKING_TOKENS=8000` | Cap thinking budget | 30-50% thinking token reduction |
-| `effortLevel: medium` | No default deep reasoning | Baseline efficiency |
-| Haiku subagent exploration | 10x cheaper model for research | 80-90% on exploration calls |
-| `/btw` for quick lookups | Never enters conversation history | 500-2,000 tokens/question |
-| `/clear` between tasks | Eliminate stale context | Variable, often largest gain |
+| Optimization lever                 | Mechanism                                | Estimated savings               |
+| ---------------------------------- | ---------------------------------------- | ------------------------------- |
+| CLAUDE.md < 200 lines              | Removed workflow bloat                   | 2,000-10,000 tokens/session     |
+| Skills on-demand                   | Zero cost at startup                     | 1,000-5,000 tokens/session      |
+| Large file hook (>300 lines)       | PreToolUse external script               | 10,000-50,000 tokens/session    |
+| Bash safety hook                   | PreToolUse blocks git push, rm -rf, curl | Prevents destructive operations |
+| `permissions.deny` git push      | Hard block on destructive git            | Prevents accidental pushes      |
+| `permissions.ask` git commit     | Human confirmation required              | Controlled git history          |
+| `attribution: {commit:"",pr:""}` | No Co-Authored-By in commits             | Clean git log                   |
+| `MAX_THINKING_TOKENS=8000`       | Cap thinking budget                      | 30-50% thinking token reduction |
+| `effortLevel: medium`            | No default deep reasoning                | Baseline efficiency             |
+| Haiku subagent exploration         | 10x cheaper model for research           | 80-90% on exploration calls     |
+| `/btw` for quick lookups         | Never enters conversation history        | 500-2,000 tokens/question       |
+| `/clear` between tasks           | Eliminate stale context                  | Variable, often largest gain    |
 
 ---
 
@@ -612,8 +823,8 @@ Produce a final savings summary. Cross-reference with the full [Token Optimizati
 - [Best practices — Claude Code Docs](https://code.claude.com/docs/en/best-practices)
 - [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
 - [How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works)
-- [Memory & CLAUDE.md](https://code.claude.com/docs/en/memory)
-- [Model configuration & effort levels](https://code.claude.com/docs/en/model-config)
+- [Memory &amp; CLAUDE.md](https://code.claude.com/docs/en/memory)
+- [Model configuration &amp; effort levels](https://code.claude.com/docs/en/model-config)
 
 ---
 
