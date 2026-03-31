@@ -95,7 +95,7 @@ In the current CLAUDE.md files, identify and tag each section:
 | Old/deprecated patterns                                     | → Delete                                              |
 | HTML comments `<!-- notes -->` inside CLAUDE.md           | → Keep (they are stripped from context automatically) |
 
-### 2b. Rewrite `~/.claude/CLAUDE.md` (global)
+### 2b. Rewrite `~/.claude/CLAUDE.md` (global) <> [see an example here to `CCBPP`](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#4-claudemd--the-right-way)
 
 **Hard limit : 200 lines.** Content to keep:
 
