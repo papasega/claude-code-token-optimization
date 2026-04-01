@@ -388,7 +388,7 @@ grep -r "function_name" --include="*.py" -l   # Files containing it
 
 ## PHASE 4 — SETTINGS & SECURITY OPTIMIZATION
 
-### 4a. Update `~/.claude/settings.json` (global defaults + git safety)
+### 4a. Update `~/.claude/settings.json` (global defaults + git safety). [Find the full example here](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#2-project-configuration--settingsjson)
 
 Read the current file, then merge these optimizations (**do not overwrite — merge**).
 
