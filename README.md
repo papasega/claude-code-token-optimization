@@ -8,7 +8,7 @@
 
 ---
 
-![Claude Code Best Practice](./ndapli/ccto_psw.png)
+![Claude Code Best Practice](./ndapli/ccto_psw.jpg)
 
 ## Context & Objective
 
