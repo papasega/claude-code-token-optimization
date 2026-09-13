@@ -4,7 +4,7 @@
 > Claude will run the audit and optimization autonomously, phase by phase.
 > **Series :** Companion to [claude-code-best-practice-playbook](https://github.com/papasega/claude-code-best-practice-playbook) — full setup & workflow reference.
 
-> **Version :** Claude Code ≥ 2.1 · Last updated: 2026-03 · Verify with `claude --version`
+> **Version :** Claude Code ≥ 2.1 · Last verified: 2026-09-13 · Verify with `claude --version`
 
 ---
 
@@ -12,9 +12,15 @@
 
 ## Context & Objective
 
-You are tasked with performing a comprehensive self-optimization of this Claude Code environment to **minimize startup context cost and per-turn token waste** while maintaining full task performance. This is a systematic audit-and-refactor mission.
+You are tasked with performing a comprehensive self-optimization of this Claude Code environment to **minimize startup context cost and per-turn token waste** while measuring and minimizing regressions in task completion quality. This is a systematic audit-and-refactor mission.
 
 Work through each phase below **in order**. Create all files. Report token estimates at each step. Do not ask for confirmation between phases — execute autonomously.
+
+> **On the numbers in this document.** Token and cost figures are estimates from
+> character counts and published per-token prices, not measurements of your workload.
+> This prompt ships **no evaluation harness**, so quality neutrality is *not*
+> demonstrated: treat every reduction as a hypothesis to validate on your own
+> representative tasks before adopting it broadly.
 
 ---
 
@@ -44,7 +50,8 @@ import json, sys
 d = json.load(sys.stdin)
 print('model:', d.get('model', 'not set'))
 print('effortLevel:', d.get('effortLevel', 'not set'))
-print('MAX_THINKING_TOKENS:', d.get('env', {}).get('MAX_THINKING_TOKENS', 'not set'))
+mtt = d.get('env', {}).get('MAX_THINKING_TOKENS', 'not set')
+print('MAX_THINKING_TOKENS:', mtt, '(legacy — ignored on adaptive-reasoning models)')
 " 2>/dev/null || echo "No ~/.claude/settings.json"
 
 # 1f. Check project hooks
@@ -63,7 +70,7 @@ def tokens(path):
     try:
         with open(os.path.expanduser(path)) as f:
             return len(f.read()) // 4
-    except:
+    except (OSError, UnicodeError):
         return 0
 
 g = tokens('~/.claude/CLAUDE.md')
@@ -134,7 +141,7 @@ def tokens(path):
     try:
         with open(os.path.expanduser(path)) as f:
             return len(f.read()) // 4
-    except:
+    except (OSError, UnicodeError):
         return 0
 
 print(f'Global CLAUDE.md after: ~{tokens(\"~/.claude/CLAUDE.md\")} tokens')
@@ -144,16 +151,25 @@ print(f'Project CLAUDE.md after: ~{tokens(\".claude/CLAUDE.md\")} tokens')
 
 ---
 
-## PHASE 3 — SKILLS MIGRATION (on-demand = zero startup cost)
+## PHASE 3 — SKILLS MIGRATION (on-demand body, near-zero startup cost)
 
-> Skills load **only when invoked**. Moving workflow docs from CLAUDE.md to skills = **free tokens at startup**.
+> A skill's **body** loads only when the skill is invoked. Its **name and description**
+> still contribute to the discovery context Claude sees at startup, so "zero startup
+> cost" is an approximation, not a guarantee: many small skills are not free.
+> Moving a long workflow doc out of CLAUDE.md and into a skill body is what pays.
+>
+> Note also that CLAUDE.md is not paid once. It is loaded at startup and stays in
+> the context of every following turn. Prompt caching can make those repeated turns
+> cheaper, but a cache hit only reduces the API price of those input tokens — it does
+> not remove them from the context window.
+>
 > Each SKILL.md must be ≤ 80 lines, concise, no padding.
 
 ### 3a. Create skill : `pdf-to-context`
 
 **Path :** `.claude/skills/pdf-to-context/SKILL.md`
 
-```markdown
+````markdown
 ---
 name: pdf-to-context
 description: Convert PDF or large document to token-efficient markdown before analysis.
@@ -209,14 +225,13 @@ grep -i "error\|warning\|fail" log.txt       # Errors only
 grep -A3 "FAILED" test_output.txt            # Failed tests with context
 
 ```
-
-
+````
 
 ### 3b. Create skill : `context-manager`
 
 **Path :** `.claude/skills/context-manager/SKILL.md`
 
-```markdown
+````markdown
 ---
 name: context-manager
 description: Manage context window health during long sessions.
@@ -236,18 +251,18 @@ description: Manage context window health during long sessions.
 
 ## Optimal /compact command
 ```
-
-`/compact` Focus on: modified files list, current task state, failing test names, key decisions.
+/compact Focus on: modified files list, current task state, failing test names, key decisions.
 Discard: exploration history, verbose tool outputs, failed attempts.
+```
 
-
-
-## Subagent delegation (zero main context cost)
+## Subagent delegation (isolated context, not free)
 For ANY research/exploration task, use this pattern:
 > "Use a subagent to investigate [TOPIC] and return a 200-word summary:
 > key findings, relevant file paths, recommended approach."
 
 Subagents run in **separate context windows** → your main context stays clean.
+The subagent still spends its own tokens, so this moves cost out of the main
+window rather than eliminating it.
 
 ## Session hygiene checklist
 - [ ] `/clear` between unrelated tasks
@@ -255,13 +270,13 @@ Subagents run in **separate context windows** → your main context stays clean.
 - [ ] Use subagents for codebase exploration
 - [ ] Never `cat` large files — always `grep/head/tail` first
 - [ ] Prefer Bash commands over Read tool for large files
-
+````
 
 ### 3c. Create skill : `model-selector`
 
 **Path :** `.claude/skills/model-selector/SKILL.md`
 
-```markdown
+````markdown
 ---
 name: model-selector
 description: Choose the right model and effort level per task to minimize cost.
@@ -270,22 +285,28 @@ description: Choose the right model and effort level per task to minimize cost.
 
 # Model & Effort Selection Matrix
 
-| Task type | Model | Effort | Cost vs default |
+Per-token price ratios below are relative to Sonnet 5 and hold for both input and
+output. They are *price* ratios, not end-to-end cost ratios: a weaker model that
+needs more turns can cost more overall.
+
+| Task type | Model | Effort | Per-token price vs Sonnet 5 |
 |-----------|-------|--------|----------------|
-| Typo fix, rename variable | haiku | low | ~10x cheaper |
-| Write function, add test | sonnet | low | baseline |
-| Debug complex bug | sonnet | medium | +30% |
-| Architecture / design decision | sonnet high or opus | high | +3-5x, justified |
-| Multi-file refactor | sonnet | medium | baseline |
-| Subagent exploration tasks | haiku | low | ~10x cheaper |
+| Typo fix, rename variable | haiku | low | ~2x cheaper |
+| Write function, add test | sonnet | high (default) | baseline |
+| Debug complex bug | sonnet | high | baseline |
+| Architecture / design decision | sonnet xhigh, or opus | xhigh | opus ~2.5x the price |
+| Multi-file refactor | sonnet | high | baseline |
+| Subagent exploration tasks | haiku | low | ~2x cheaper |
 
 ## Session commands
 ```bash
 /model          # Open model picker
-/effort low     # Fast, cheap — routine tasks
-/effort medium  # Default balanced (recommended)
-/effort high    # Deep reasoning — justify the cost
-
+/effort low     # Short, scoped, latency-sensitive work
+/effort medium  # Trades some capability for lower token spend
+/effort high    # Default on current models
+/effort xhigh   # Deeper reasoning, higher token spend
+/effort max     # Session only — not persistable in settings.json
+/effort auto    # Clear the saved level, return to the model default
 ```
 
 ## Subagent model override (in agent frontmatter)
@@ -302,17 +323,29 @@ effort: low
 
 ## Cost multipliers reference
 
-- Extended thinking (high effort) = output tokens billed → 3–5× more expensive
-- Haiku ≈ 10× cheaper than Sonnet for same token count
-- `MAX_THINKING_TOKENS=8000` caps runaway thinking cost on simple tasks
+Per-token API prices, verified 2026-09-13. Check the official pricing page before
+relying on these figures: https://platform.claude.com/docs/en/about-claude/pricing
 
+| Model | Input / output per MTok | Ratio vs Sonnet 5 |
+|-------|------------------------|-------------------|
+| Haiku 4.5 | $1 / $5 | ~0.5x (about 2x cheaper) |
+| Sonnet 5 | $2 / $10 | 1x (baseline) |
+| Opus 5 | $5 / $25 | ~2.5x |
+| Fable 5.1 | $10 / $50 | ~5x |
 
+- Higher effort spends more thinking tokens, billed as output. The multiplier depends
+  on the task, so measure it rather than assuming a fixed factor.
+- A cache hit costs 0.1x the base input price, which lowers the bill for repeated
+  prefixes but does not free space in the context window.
+- Effort is the control for reasoning depth. `MAX_THINKING_TOKENS` is ignored on
+  models with adaptive reasoning, so do not set it as a cost cap.
+````
 
 ### 3d. Create skill : `fetch-not-read`
 
 **Path :** `.claude/skills/fetch-not-read/SKILL.md`
 
-```markdown
+````markdown
 ---
 name: fetch-not-read
 description: Use targeted Bash commands instead of full file reads to minimize context tokens.
@@ -375,14 +408,17 @@ grep -r "function_name" --include="*.py" -l   # Files containing it
 
 ## Token budget for file reads
 
-| File size        | Strategy                         |
-| ---------------- | -------------------------------- |
-| < 50 lines       | OK to Read directly              |
-| 50–200 lines    | Read only if full context needed |
-| > 200 lines      | Use Bash extraction ALWAYS       |
-| Entire directory | NEVER read all — use grep/find  |
+Targeted extraction is the cheaper default, not a universal rule. Reading a file in
+full is the right call when you need its invariants, its control flow, or how its
+parts interact — a grep that misses context is more expensive than the tokens it saved.
 
-
+| File size        | Default strategy                                          |
+| ---------------- | --------------------------------------------------------- |
+| < 50 lines       | Read directly                                              |
+| 50–200 lines     | Read when you need the whole picture, extract when locating |
+| > 200 lines      | Prefer extraction to locate; read in full when the task needs global context |
+| Entire directory | Survey with grep/find; delegate a broad exploration to a subagent |
+````
 
 ---
 
@@ -390,207 +426,323 @@ grep -r "function_name" --include="*.py" -l   # Files containing it
 
 ### 4a. Update `~/.claude/settings.json` (global defaults + git safety). [Find the full example here](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#2-project-configuration--settingsjson)
 
-Read the current file, then merge these optimizations (**do not overwrite — merge**).
+This file applies to **every project on your machine**, so the script below is
+written to be **preservative, backed up, and atomic**:
 
-This step adds **three layers of protection** :
-- `deny` — hard block (git push, rm -rf, curl, edit secrets)
-- `ask` — Claude asks for your confirmation before executing (git commit, checkout)
-- `allow` — pre-approved safe commands (git diff, grep, find)
+- it never overwrites a key you already set — it only adds what is missing;
+- it refuses to touch a file it could not parse, rather than replacing it with a
+  fresh one and silently losing your configuration;
+- it copies the current file to a timestamped `.bak` before changing anything, and
+  skips the backup entirely when the merge produces no change;
+- it writes to a temporary file in the same directory, `fsync`s it, re-parses it to
+  confirm it is valid JSON, and only then swaps it into place with `os.replace()`,
+  so an interrupted run cannot leave a truncated settings file;
+- running it twice is a no-op: no duplicated rules, no second backup.
+
+This step configures **three layers of permission** :
+- `deny` — hard block (git push, git reset --hard, rm -rf, read/edit secrets)
+- `ask` — Claude asks for your confirmation first (git commit, checkout, curl, wget)
+- `allow` — pre-approved read-only commands (git diff, grep, find)
 
 ```bash
 python3 << 'EOF'
-import json, os
+import json, os, shutil, sys, tempfile
+from datetime import datetime
+from pathlib import Path
 
-path = os.path.expanduser("~/.claude/settings.json")
-try:
-    with open(path) as f:
-        settings = json.load(f)
-except FileNotFoundError:
+path = Path("~/.claude/settings.json").expanduser().resolve()
+path.parent.mkdir(parents=True, exist_ok=True)
+
+# Read the existing config. An unparseable file stops the run: we never replace
+# a configuration we could not read.
+if path.exists():
+    try:
+        original = path.read_text(encoding="utf-8")
+        settings = json.loads(original)
+    except (OSError, UnicodeError) as exc:
+        sys.exit(f"ERROR: cannot read {path}: {exc}")
+    except json.JSONDecodeError as exc:
+        sys.exit(
+            f"ERROR: {path} is not valid JSON "
+            f"(line {exc.lineno}, column {exc.colno}): {exc.msg}\n"
+            f"Nothing was modified. Fix the file or move it aside, then re-run."
+        )
+    if not isinstance(settings, dict):
+        sys.exit(f"ERROR: {path} must contain a JSON object. Nothing was modified.")
+else:
+    original = None
     settings = {}
 
-# Merge token-saving defaults
-settings.setdefault("model", "claude-sonnet-4-6")
-settings.setdefault("effortLevel", "medium")
-settings.setdefault("env", {})
-settings["env"]["MAX_THINKING_TOKENS"] = "8000"
+
+def add_missing(container, key, values):
+    """Append only values that are absent, so re-running adds no duplicates."""
+    existing = container.setdefault(key, [])
+    for value in values:
+        if value not in existing:
+            existing.append(value)
+
+
+# setdefault throughout: an existing choice of yours always wins.
+settings.setdefault("model", "sonnet")
+
+# effortLevel is deliberately NOT set here. `high` is already the default on
+# current models, and lowering it to `medium` trades capability for token spend —
+# a decision to make explicitly, per project, not to inherit from a setup script.
 
 # ── PERMISSIONS ─────────────────────────────────────────────
-settings.setdefault("permissions", {})
+permissions = settings.setdefault("permissions", {})
 
-# Allow: pre-approved safe commands (no confirmation prompt)
-settings["permissions"].setdefault("allow", [])
-allow_rules = [
+# Allow: pre-approved read-only commands (no confirmation prompt)
+add_missing(permissions, "allow", [
     "Bash(git diff *)", "Bash(git log *)", "Bash(git status *)",
     "Bash(wc *)", "Bash(grep *)", "Bash(find *)",
-    "Bash(head *)", "Bash(tail *)", "Bash(sed -n *)"
-]
-for rule in allow_rules:
-    if rule not in settings["permissions"]["allow"]:
-        settings["permissions"]["allow"].append(rule)
+    "Bash(head *)", "Bash(tail *)", "Bash(sed -n *)",
+])
 
-# Deny: hard block — Claude cannot execute these under any circumstances
-settings["permissions"].setdefault("deny", [])
-deny_rules = [
+# Deny: hard block. A trailing " *" also matches the bare command, so
+# "Bash(git push *)" covers "git push" with no arguments.
+add_missing(permissions, "deny", [
     # Protect secrets
     "Read(./.env)", "Read(./.env.*)",
     "Read(./secrets/**)", "Read(./.git/objects/**)",
     "Edit(.env)", "Edit(.env.*)",
     "Edit(./secrets/**)", "Edit(.git/**)",
-    # Block destructive git operations
-    "Bash(git push *)", "Bash(git push)",
-    "Bash(git push --force *)",
+    # Destructive or history-rewriting git operations
+    "Bash(git push *)",
     "Bash(git reset --hard *)",
-    # Block destructive system commands
+    # Destructive system commands
     "Bash(rm -rf *)",
-    # Block network exfiltration
-    "Bash(curl *)", "Bash(wget *)"
-]
-for rule in deny_rules:
-    if rule not in settings["permissions"]["deny"]:
-        settings["permissions"]["deny"].append(rule)
+])
 
-# Ask: Claude requests your confirmation before executing
-settings["permissions"].setdefault("ask", [])
-ask_rules = [
+# Ask: Claude requests your confirmation before executing.
+# curl and wget sit here rather than in deny: they are legitimate in many
+# workflows, and blocking them is a control on explicit shell network access,
+# NOT a general defence against data exfiltration (see the note below).
+add_missing(permissions, "ask", [
     "Bash(git commit *)",
     "Bash(git checkout *)",
     "Bash(git branch -d *)",
-    "Bash(git stash *)"
-]
-for rule in ask_rules:
-    if rule not in settings["permissions"]["ask"]:
-        settings["permissions"]["ask"].append(rule)
+    "Bash(git stash *)",
+    "Bash(curl *)",
+    "Bash(wget *)",
+])
 
 # ── ATTRIBUTION ─────────────────────────────────────────────
 # Remove Co-Authored-By: Claude from git commits and PRs
-settings["attribution"] = {"commit": "", "pr": ""}
+settings.setdefault("attribution", {"commit": "", "pr": ""})
 
 # ── GITIGNORE ───────────────────────────────────────────────
-settings["respectGitignore"] = True
+settings.setdefault("respectGitignore", True)
 
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
+# ── WRITE: no-op check, backup, atomic replace ──────────────
+updated = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
 
-print("~/.claude/settings.json updated")
-print(f"   model          : {settings['model']}")
-print(f"   effortLevel    : {settings['effortLevel']}")
-print(f"   MAX_THINKING   : {settings['env']['MAX_THINKING_TOKENS']}")
-print(f"   deny rules     : {len(settings['permissions']['deny'])}")
-print(f"   ask rules      : {len(settings['permissions']['ask'])}")
-print(f"   allow rules    : {len(settings['permissions']['allow'])}")
-print(f"   attribution    : commit='{settings['attribution']['commit']}' pr='{settings['attribution']['pr']}'")
+if original is not None and updated == original:
+    print(f"{path} already up to date — nothing changed, no backup written.")
+    raise SystemExit(0)
+
+if path.exists():
+    backup = path.with_name(f"{path.name}.{datetime.now():%Y%m%d-%H%M%S}.bak")
+    shutil.copy2(path, backup)
+    print(f"Backup written: {backup}")
+
+mode = (path.stat().st_mode & 0o777) if path.exists() else 0o600
+fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(updated)
+        handle.flush()
+        os.fsync(handle.fileno())
+    # Re-parse before swapping: never promote a file we cannot read back.
+    json.loads(Path(tmp_name).read_text(encoding="utf-8"))
+    os.chmod(tmp_name, mode)
+    os.replace(tmp_name, path)
+except BaseException:
+    Path(tmp_name).unlink(missing_ok=True)
+    raise
+
+print(f"{path} updated")
+print(f"   model           : {settings['model']}")
+print(f"   effortLevel     : {settings.get('effortLevel', 'not set (model default: high)')}")
+print(f"   deny rules      : {len(permissions['deny'])}")
+print(f"   ask rules       : {len(permissions['ask'])}")
+print(f"   allow rules     : {len(permissions['allow'])}")
+print(f"   attribution     : commit='{settings['attribution']['commit']}' pr='{settings['attribution']['pr']}'")
 print(f"   respectGitignore: {settings['respectGitignore']}")
 EOF
 ```
 
-### 4b. Create `.claude/hooks/guard-large-read.sh` (large file interceptor)
+> **Scope of the network rules.** Putting `curl` and `wget` behind `ask` controls
+> *explicit shell network access*. It is not an exfiltration policy: package
+> managers, language runtimes, `npx`, MCP servers and any other tool with a socket
+> can still reach the network, and these rules deliberately do not block them.
+> Treat this as one narrow control among several, not as a boundary.
 
-This hook **blocks accidental reads of files > 300 lines** and suggests Bash alternatives.
-Estimated savings: **50,000+ tokens per long session**.
+### 4b. Create `.claude/hooks/advise-large-read.sh` (large file advisor)
 
-> **Implementation :** External script (not inline JSON) — aligned with the [playbook §6](./claude-code-best-practice-playbook.md#6-hooks--deterministic-guardrails). Easier to test independently with `echo '{...}' | bash .claude/hooks/guard-large-read.sh`.
+This hook **advises** on reads of files over 300 lines. It never denies the call.
+
+Line count is a weak proxy for whether a full read is warranted: understanding a
+file's invariants, its control flow, or how its parts interact often *requires*
+reading it whole, and a refusal there costs more than it saves. So the hook adds a
+note and leaves the decision to Claude.
+
+Because it returns no `permissionDecision`, it does not short-circuit the normal
+permission flow — in particular it never auto-approves a read that your `ask` or
+`deny` rules would otherwise catch.
+
+> **Implementation :** External script (not inline JSON) — aligned with the
+> [playbook §6](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#6-hooks--deterministic-guardrails).
+> Easier to test independently with `echo '{...}' | bash .claude/hooks/advise-large-read.sh`.
 
 ```bash
 mkdir -p .claude/hooks
 
-cat > .claude/hooks/guard-large-read.sh << 'HOOKEOF'
+cat > .claude/hooks/advise-large-read.sh << 'HOOKEOF'
 #!/bin/bash
-# Block Read tool on files > 300 lines — enforce grep/sed extraction
+# advise-large-read.sh — PreToolUse hook for the Read tool.
+# Advisory only: emits a suggestion for large files, never blocks the read.
 set -euo pipefail
 
-INPUT=$(cat)
-FILE=$(echo "$INPUT" | python3 -c "
-import json, sys
-print(json.load(sys.stdin).get('tool_input', {}).get('file_path', ''))
-" 2>/dev/null || echo "")
+THRESHOLD=300
 
-# Early exit: no file path or file doesn't exist
-if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+INPUT=$(cat)
+
+# Extract the target path. Malformed JSON is not our problem to report: stay quiet.
+FILE=$(printf '%s' "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except (json.JSONDecodeError, UnicodeError, ValueError):
+    sys.exit(0)
+if isinstance(data, dict):
+    print(data.get('tool_input', {}).get('file_path', ''))
+" 2>/dev/null || true)
+
+if [ -z "${FILE:-}" ] || [ ! -f "$FILE" ]; then
   exit 0
 fi
 
-LINES=$(wc -l < "$FILE" 2>/dev/null || echo 0)
-if [ "$LINES" -gt 300 ]; then
-  python3 -c "
-import json
+LINES=$(wc -l < "$FILE" 2>/dev/null | tr -d '[:space:]' || echo 0)
+case "$LINES" in ''|*[!0-9]*) exit 0 ;; esac
+
+if [ "$LINES" -le "$THRESHOLD" ]; then
+  exit 0
+fi
+
+# Over the threshold: advise. Path and count go through the environment so a
+# filename containing quotes cannot break out of the JSON.
+FILE="$FILE" LINES="$LINES" python3 -c "
+import json, os
+path = os.environ['FILE']
+lines = os.environ['LINES']
 print(json.dumps({
-  'decision': 'block',
-  'reason': (
-    '$FILE has $LINES lines (~' + str($LINES * 5) + ' tokens). '
-    'Use targeted extraction: '
-    'grep -n \\"pattern\\" $FILE | head -20 '
-    'or: sed -n \\"/^def target/,/^def /p\\" $FILE | head -50'
-  )
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'additionalContext': (
+            f'{path} has {lines} lines. To locate a specific symbol or passage, '
+            f'targeted extraction (grep -n, a sed range, head) costs far fewer '
+            f'tokens. If the task needs the whole picture - invariants, control '
+            f'flow, how the parts interact - reading it in full is the right call.'
+        ),
+    }
 }))
 "
-  exit 0
-fi
-
 exit 0
 HOOKEOF
 
-chmod +x .claude/hooks/guard-large-read.sh
-echo "guard-large-read.sh created and made executable"
+chmod +x .claude/hooks/advise-large-read.sh
+echo "advise-large-read.sh created and made executable"
 ```
 
 ### 4c. Create `.claude/hooks/validate-bash.sh` (dangerous command interceptor)
 
-This hook is a **second line of defense** for Bash commands. While `deny` rules block known patterns, this script catches variants that pattern matching might miss (e.g., `command git push`, `env GIT_SSH=... git push`).
+This hook is a **complementary defence** covering a set of known-dangerous command
+shapes. A handful of regular expressions do not parse shell grammar: quoting,
+variable indirection, aliases and wrappers can all produce a dangerous command this
+script does not recognise. Keep the `permissions.deny` rules from 4a as the other
+layer, and do not treat either one as a complete boundary.
+
+**Protocol.** `PreToolUse` accepts two shapes, and mixing them is what breaks hooks:
+
+- **block** — write a human-readable reason to **stderr** and `exit 2`;
+- **structured decision** — write JSON to **stdout** and `exit 0`, with the decision in
+  `hookSpecificOutput.permissionDecision`.
+
+A top-level `{"decision":"block"}` is **not** valid for `PreToolUse` — that shape
+belongs to other events such as `PostToolUse` and `Stop`, and Claude Code silently
+ignores the misplaced field here. This hook uses the first shape, so it prints a
+plain sentence to stderr and exits 2. When a command is allowed it prints nothing.
 
 ```bash
 cat > .claude/hooks/validate-bash.sh << 'HOOKEOF'
 #!/bin/bash
-# validate-bash.sh — PreToolUse hook for Bash commands
-# Blocks dangerous shell commands before Claude Code executes them.
-# Exit code 2 = BLOCK, exit code 0 = ALLOW
+# validate-bash.sh — PreToolUse hook for Bash commands.
+# Blocks a set of known-dangerous command shapes before Claude Code runs them.
+# Protocol: plain text on stderr + exit 2 to block; silence + exit 0 to allow.
 set -euo pipefail
 
 INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('tool_input', {}).get('command', ''))
-" 2>/dev/null || echo "")
 
-if [ -z "$COMMAND" ]; then
+COMMAND=$(printf '%s' "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except (json.JSONDecodeError, UnicodeError, ValueError):
+    sys.exit(0)
+if isinstance(data, dict):
+    print(data.get('tool_input', {}).get('command', ''))
+" 2>/dev/null || true)
+
+if [ -z "${COMMAND:-}" ]; then
   exit 0
 fi
 
-# git push (any variant)
-if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)git\s+push(\s|$)'; then
-  echo '{"decision":"block","reason":"git push blocked. Push manually."}' >&2
+# Command boundary: start of string, or after a shell separator.
+# POSIX classes throughout — grep -E does not understand \s.
+BOUNDARY='(^|[[:space:]]|;|&&|\|\||\|)'
+
+block() {
+  printf '%s\n' "$1" >&2
   exit 2
+}
+
+# git push — the trailing (space or end) keeps "git push-something" from matching.
+if printf '%s' "$COMMAND" | grep -qE "${BOUNDARY}git[[:space:]]+push([[:space:]]|$)"; then
+  block "git push is blocked by policy. Push manually after reviewing the diff."
 fi
 
 # git reset --hard
-if echo "$COMMAND" | grep -qE 'git\s+reset\s+--hard'; then
-  echo '{"decision":"block","reason":"git reset --hard blocked. Destructive operation."}' >&2
-  exit 2
+if printf '%s' "$COMMAND" | grep -qE "${BOUNDARY}git[[:space:]]+reset[[:space:]]+--hard([[:space:]]|$)"; then
+  block "git reset --hard is blocked: it discards uncommitted work irreversibly."
 fi
 
-# rm -rf (recursive force delete)
-if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)rm\s+-[a-zA-Z]*r[a-zA-Z]*f|rm\s+-[a-zA-Z]*f[a-zA-Z]*r'; then
-  echo '{"decision":"block","reason":"rm -rf blocked. Dangerous recursive delete."}' >&2
-  exit 2
+# rm with both recursive and force, in either order, short or long form.
+# Covers: -rf, -fr, -r -f, -f -r, --recursive --force, --force --recursive.
+RM_SHORT_RF="-[A-Za-z]*r[A-Za-z]*f"
+RM_SHORT_FR="-[A-Za-z]*f[A-Za-z]*r"
+RM_LONG_RF="--recursive([[:space:]]+-[A-Za-z-]+)*[[:space:]]+--force"
+RM_LONG_FR="--force([[:space:]]+-[A-Za-z-]+)*[[:space:]]+--recursive"
+RM_SPLIT_RF="-[A-Za-z]*r[A-Za-z]*([[:space:]]+-[A-Za-z-]+)*[[:space:]]+-[A-Za-z]*f"
+RM_SPLIT_FR="-[A-Za-z]*f[A-Za-z]*([[:space:]]+-[A-Za-z-]+)*[[:space:]]+-[A-Za-z]*r"
+
+if printf '%s' "$COMMAND" | grep -qE \
+  "${BOUNDARY}rm[[:space:]]+([A-Za-z-]+[[:space:]]+)*(${RM_SHORT_RF}|${RM_SHORT_FR}|${RM_LONG_RF}|${RM_LONG_FR}|${RM_SPLIT_RF}|${RM_SPLIT_FR})([[:space:]]|$)"; then
+  block "Recursive forced delete (rm -rf and equivalents) is blocked."
 fi
 
-# curl / wget (prevent network exfiltration)
-if echo "$COMMAND" | grep -qE '(^|\s|;|&&|\|\|)(curl|wget)\s'; then
-  echo '{"decision":"block","reason":"curl/wget blocked. No unauthorized network requests."}' >&2
-  exit 2
+# chmod 777
+if printf '%s' "$COMMAND" | grep -qE "${BOUNDARY}chmod[[:space:]]+(-[A-Za-z-]+[[:space:]]+)*777([[:space:]]|$)"; then
+  block "chmod 777 is blocked: world-writable permissions are almost never intended."
 fi
 
-# chmod 777 (overly permissive)
-if echo "$COMMAND" | grep -qE 'chmod\s+777'; then
-  echo '{"decision":"block","reason":"chmod 777 blocked. Overly permissive."}' >&2
-  exit 2
+# Redirection into a system directory
+if printf '%s' "$COMMAND" | grep -qE '(>|>>)[[:space:]]*/(etc|usr|var|boot|sys)/'; then
+  block "Writing into a system directory is blocked."
 fi
 
-# Writing to system directories
-if echo "$COMMAND" | grep -qE '(>|>>)\s*/(etc|usr|var|boot|sys)/'; then
-  echo '{"decision":"block","reason":"Writing to system directory blocked."}' >&2
-  exit 2
-fi
+# curl and wget are NOT blocked here — they are handled by the permissions.ask
+# rules from 4a, so legitimate fetches prompt instead of failing.
 
 exit 0
 HOOKEOF
@@ -599,46 +751,137 @@ chmod +x .claude/hooks/validate-bash.sh
 echo "validate-bash.sh created and made executable"
 ```
 
-### 4d. Reference both hooks in `.claude/settings.json`
+**Known limitations, measured on this script.** These are inherent to regex matching,
+not bugs to file:
 
-Add the hooks section to your project or global settings. Both hooks fire on every tool call — `guard-large-read` on `Read`, `validate-bash` on `Bash`.
+| Command | Result | Why |
+|---------|--------|-----|
+| `echo git push` | blocked | Cannot tell a quoted mention from a real invocation — fails safe |
+| `echo rm -rf /tmp` | blocked | Same |
+| `git -c protocol.version=2 push` | **allowed** | Options between `git` and the subcommand break the pattern |
+| `eval "git push"` | **allowed** | The dangerous string is built at runtime |
+| `bash -c "git push"` | **allowed** | The wrapper hides the inner command |
+| `g=push; git $g` | **allowed** | Variable indirection |
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-large-read.sh"
-          }
-        ]
-      }
-    ]
-  }
+The over-blocks are acceptable: rephrase the command. The under-blocks are the
+reason this hook is a *complementary* layer — pair it with the `permissions.deny`
+rules from 4a, and do not present either as a security boundary.
+
+### 4d. Register both hooks in the **project** `.claude/settings.json`
+
+These hooks go in the **project** file, not the global one. Their commands resolve
+through `$CLAUDE_PROJECT_DIR/.claude/hooks/...`, which only exists in a project that
+ran Phase 4b and 4c. Registering them in `~/.claude/settings.json` would make every
+other project on your machine invoke a script that is not there.
+
+| File | Scope | What belongs there |
+|------|-------|--------------------|
+| `~/.claude/settings.json` | every project | model, permissions, attribution (Phase 4a) |
+| `.claude/settings.json` | this project | hooks pointing at this project's scripts (below) |
+
+The script below **merges** into any existing project config: it keeps every hook and
+matcher already present, adds only what is missing, refuses to overwrite a file it
+cannot parse, and writes atomically. Running it twice changes nothing the second time.
+
+```bash
+python3 << 'EOF'
+import json, os, shutil, sys, tempfile
+from datetime import datetime
+from pathlib import Path
+
+path = Path(".claude/settings.json").resolve()
+path.parent.mkdir(parents=True, exist_ok=True)
+
+if path.exists():
+    try:
+        original = path.read_text(encoding="utf-8")
+        settings = json.loads(original)
+    except (OSError, UnicodeError) as exc:
+        sys.exit(f"ERROR: cannot read {path}: {exc}")
+    except json.JSONDecodeError as exc:
+        sys.exit(
+            f"ERROR: {path} is not valid JSON "
+            f"(line {exc.lineno}, column {exc.colno}): {exc.msg}\n"
+            f"Nothing was modified."
+        )
+    if not isinstance(settings, dict):
+        sys.exit(f"ERROR: {path} must contain a JSON object. Nothing was modified.")
+else:
+    original = None
+    settings = {}
+
+WANTED = {
+    "Bash": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash.sh",
+    "Read": "$CLAUDE_PROJECT_DIR/.claude/hooks/advise-large-read.sh",
 }
+
+pre_tool_use = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
+
+for matcher, command in WANTED.items():
+    # Find an existing entry for this matcher instead of appending a rival one.
+    entry = next(
+        (e for e in pre_tool_use
+         if isinstance(e, dict) and e.get("matcher") == matcher),
+        None,
+    )
+    if entry is None:
+        pre_tool_use.append({
+            "matcher": matcher,
+            "hooks": [{"type": "command", "command": command}],
+        })
+        continue
+
+    hooks = entry.setdefault("hooks", [])
+    already = any(
+        isinstance(h, dict) and h.get("command") == command for h in hooks
+    )
+    if not already:
+        hooks.append({"type": "command", "command": command})
+
+updated = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+
+if original is not None and updated == original:
+    print(f"{path} already registers both hooks — nothing changed.")
+    raise SystemExit(0)
+
+if path.exists():
+    backup = path.with_name(f"{path.name}.{datetime.now():%Y%m%d-%H%M%S}.bak")
+    shutil.copy2(path, backup)
+    print(f"Backup written: {backup}")
+
+mode = (path.stat().st_mode & 0o777) if path.exists() else 0o600
+fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(updated)
+        handle.flush()
+        os.fsync(handle.fileno())
+    json.loads(Path(tmp_name).read_text(encoding="utf-8"))
+    os.chmod(tmp_name, mode)
+    os.replace(tmp_name, path)
+except BaseException:
+    Path(tmp_name).unlink(missing_ok=True)
+    raise
+
+print(f"{path} updated — PreToolUse entries: {len(pre_tool_use)}")
+EOF
 ```
 
 ---
 
 ## PHASE 5 — SUBAGENT FOR CODEBASE EXPLORATION
 
-Create a Haiku-powered research subagent (~10x cheaper than Sonnet) that explores the codebase in an isolated context and returns compact summaries.
+Create a Haiku-powered research subagent that explores the codebase in an isolated
+context and returns compact summaries. Haiku 4.5 costs about half as much per token
+as Sonnet 5 (~2x cheaper, verified 2026-09-13), and the isolation keeps the
+exploration out of your main context window — that second effect is usually the
+larger win, and it applies whichever model you pick.
 
-> **Note :** The full subagent specification is in the [playbook §8](./claude-code-best-practice-playbook.md#8-subagents--isolated-context-delegation). The command below creates the file if it doesn't already exist.
+> **Note :** The full subagent specification is in the
+> [playbook §8](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#8-subagents--isolated-context-delegation).
+> The command below creates the file if it doesn't already exist.
 
-```bash
+````bash
 mkdir -p .claude/agents
 
 # Only create if not already present (don't overwrite customized versions)
@@ -683,8 +926,7 @@ echo "code-explorer.md created"
 else
 echo "code-explorer.md already exists — skipped"
 fi
-
-
+````
 
 ---
 
@@ -694,21 +936,53 @@ Run the full verification suite and generate the savings report:
 
 ```bash
 python3 << 'EOF'
-import os, glob, json
+import glob, json, os, subprocess, sys, tempfile
+from pathlib import Path
+
+failures = []
+
 
 def tokens(path):
     try:
-        with open(os.path.expanduser(path)) as f:
+        with open(os.path.expanduser(path), encoding="utf-8") as f:
             return len(f.read()) // 4
-    except:
+    except (OSError, UnicodeError):
         return 0
+
 
 def lines(path):
     try:
-        with open(os.path.expanduser(path)) as f:
+        with open(os.path.expanduser(path), encoding="utf-8") as f:
             return sum(1 for _ in f)
-    except:
+    except (OSError, UnicodeError):
         return 0
+
+
+def load_json(path):
+    try:
+        return json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
+def run_hook(script, payload):
+    """Feed one JSON payload to a hook. Returns (exit code, stdout)."""
+    proc = subprocess.run(
+        ["bash", script],
+        input=payload if isinstance(payload, str) else json.dumps(payload),
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, proc.stdout
+
+
+def check(label, ok, detail=""):
+    suffix = f" — {detail}" if detail and not ok else ""
+    print(f"  {'[OK]  ' if ok else '[FAIL]'} {label}{suffix}")
+    if not ok:
+        failures.append(label)
+    return ok
+
 
 print("=" * 60)
 print("CLAUDE CODE TOKEN OPTIMIZATION — FINAL REPORT")
@@ -728,7 +1002,7 @@ print(f"  Total startup context: ~{g_tokens + p_tokens} tokens")
 # ── Skills ────────────────────────────────────────────────
 skill_files = glob.glob(".claude/skills/*/SKILL.md")
 skill_tokens = sum(tokens(f) for f in skill_files)
-print(f"\nSkills (on-demand — zero startup cost)")
+print(f"\nSkills (body loads on invocation; name + description stay in discovery context)")
 for f in skill_files:
     t = tokens(f)
     print(f"  {os.path.basename(os.path.dirname(f))}: ~{t} tokens")
@@ -740,85 +1014,146 @@ print(f"\nSubagents configured: {len(agent_files)}")
 for f in agent_files:
     print(f"  {os.path.basename(f)}")
 
-# ── Settings & Security ──────────────────────────────────
-settings_path = os.path.expanduser("~/.claude/settings.json")
-try:
-    with open(settings_path) as f:
-        s = json.load(f)
-    perms = s.get('permissions', {})
-    attr = s.get('attribution', {})
-    print(f"\nSettings")
+# ── Global settings ───────────────────────────────────────
+s = load_json("~/.claude/settings.json")
+if s is None:
+    print("\n[FAIL] Could not read or parse ~/.claude/settings.json")
+    failures.append("global settings readable")
+    perms, attr = {}, {}
+else:
+    perms = s.get("permissions", {})
+    attr = s.get("attribution", {})
+    print(f"\nSettings (~/.claude/settings.json)")
     print(f"  model            : {s.get('model', 'not set')}")
-    print(f"  effortLevel      : {s.get('effortLevel', 'not set')}")
-    print(f"  MAX_THINKING     : {s.get('env', {}).get('MAX_THINKING_TOKENS', 'not set')}")
+    print(f"  effortLevel      : {s.get('effortLevel', 'not set (model default: high)')}")
     print(f"  respectGitignore : {s.get('respectGitignore', 'not set')}")
     print(f"  attribution      : commit='{attr.get('commit', 'not set')}' pr='{attr.get('pr', 'not set')}'")
     print(f"\nPermissions")
-    print(f"  deny rules  : {len(perms.get('deny', []))}")
-    for r in perms.get('deny', []):
-        print(f"    ✗ {r}")
-    print(f"  ask rules   : {len(perms.get('ask', []))}")
-    for r in perms.get('ask', []):
-        print(f"    ? {r}")
-    print(f"  allow rules : {len(perms.get('allow', []))}")
-    for r in perms.get('allow', []):
-        print(f"    ✓ {r}")
-except:
-    print("\nCould not read settings.json")
+    for bucket, mark in (("deny", "x"), ("ask", "?"), ("allow", "+")):
+        rules = perms.get(bucket, [])
+        print(f"  {bucket} rules : {len(rules)}")
+        for r in rules:
+            print(f"    {mark} {r}")
 
-# ── Hooks ─────────────────────────────────────────────────
-hook_files = glob.glob(".claude/hooks/*.sh") + glob.glob(os.path.expanduser("~/.claude/hooks/*.sh"))
-print(f"\nHooks installed: {len(hook_files)}")
-for f in hook_files:
-    print(f"  {f} — {'executable' if os.access(f, os.X_OK) else 'NOT executable [!]'}")
+# ── Hook verification ─────────────────────────────────────
+# A file on disk is not an active hook. Each one must exist, be executable,
+# be registered under the right matcher, and actually behave as documented.
+print(f"\nHook verification")
 
-# ── Git safety check ──────────────────────────────────────
-git_blocked = any('git push' in r for r in perms.get('deny', []))
-rm_blocked = any('rm -rf' in r for r in perms.get('deny', []))
-curl_blocked = any('curl' in r for r in perms.get('deny', []))
-commit_ask = any('git commit' in r for r in perms.get('ask', []))
+project = load_json(".claude/settings.json")
+registered = {}
+if isinstance(project, dict):
+    for entry in project.get("hooks", {}).get("PreToolUse", []):
+        if not isinstance(entry, dict):
+            continue
+        commands = [
+            h.get("command", "")
+            for h in entry.get("hooks", [])
+            if isinstance(h, dict)
+        ]
+        registered.setdefault(entry.get("matcher"), []).extend(commands)
+else:
+    check("project .claude/settings.json readable", False, "missing or invalid JSON")
 
-print(f"\nSecurity status")
-print(f"  git push blocked     : {'[OK]' if git_blocked else '[FAIL] NOT PROTECTED'}")
-print(f"  rm -rf blocked       : {'[OK]' if rm_blocked else '[FAIL] NOT PROTECTED'}")
-print(f"  curl/wget blocked    : {'[OK]' if curl_blocked else '[FAIL] NOT PROTECTED'}")
-print(f"  git commit requires confirmation : {'[OK]' if commit_ask else '[WARN] auto-allowed'}")
-print(f"  attribution suppressed : {'[OK]' if attr.get('commit') == '' else '[WARN] Claude appears in commits'}")
+BASH_HOOK = ".claude/hooks/validate-bash.sh"
+READ_HOOK = ".claude/hooks/advise-large-read.sh"
+
+for hook, matcher in ((BASH_HOOK, "Bash"), (READ_HOOK, "Read")):
+    name = os.path.basename(hook)
+    if check(f"{name}: file exists", os.path.isfile(hook)):
+        check(f"{name}: executable", os.access(hook, os.X_OK), "run chmod +x")
+    check(
+        f"{name}: registered under matcher '{matcher}'",
+        any(name in command for command in registered.get(matcher, [])),
+        "not referenced in .claude/settings.json",
+    )
+
+if os.path.isfile(BASH_HOOK):
+    code, _ = run_hook(BASH_HOOK, {"tool_name": "Bash", "tool_input": {"command": "rm -rf /tmp/probe"}})
+    check("validate-bash.sh: blocks rm -rf with exit 2", code == 2, f"exit {code}")
+    code, _ = run_hook(BASH_HOOK, {"tool_name": "Bash", "tool_input": {"command": "git status"}})
+    check("validate-bash.sh: allows git status with exit 0", code == 0, f"exit {code}")
+
+if os.path.isfile(READ_HOOK):
+    with tempfile.TemporaryDirectory() as directory:
+        big = Path(directory) / "big.py"
+        big.write_text("x = 1\n" * 301, encoding="utf-8")
+        small = Path(directory) / "small.py"
+        small.write_text("x = 1\n" * 20, encoding="utf-8")
+
+        code, out = run_hook(READ_HOOK, {"tool_name": "Read", "tool_input": {"file_path": str(big)}})
+        check("advise-large-read.sh: 301-line file advised, not refused", code == 0, f"exit {code}")
+        emitted = json.loads(out) if out.strip() else {}
+        hook_output = emitted.get("hookSpecificOutput", {})
+        check("advise-large-read.sh: emits additionalContext", bool(hook_output.get("additionalContext")))
+        check(
+            "advise-large-read.sh: returns no permissionDecision",
+            "permissionDecision" not in hook_output,
+            "must not short-circuit the permission flow",
+        )
+
+        code, out = run_hook(READ_HOOK, {"tool_name": "Read", "tool_input": {"file_path": str(small)}})
+        check("advise-large-read.sh: 20-line file stays silent", code == 0 and not out.strip(), f"exit {code}")
+
+        code, out = run_hook(READ_HOOK, {"tool_name": "Read", "tool_input": {"file_path": "/nonexistent/path.py"}})
+        check("advise-large-read.sh: missing path stays silent", code == 0 and not out.strip(), f"exit {code}")
+
+        code, out = run_hook(READ_HOOK, "not valid json")
+        check("advise-large-read.sh: invalid JSON stays silent", code == 0 and not out.strip(), f"exit {code}")
+
+# ── Permission coverage ───────────────────────────────────
+print(f"\nPermission coverage (rules present, not a proof of enforcement)")
+check("git push denied", any("git push" in r for r in perms.get("deny", [])))
+check("rm -rf denied", any("rm -rf" in r for r in perms.get("deny", [])))
+check("git commit requires confirmation", any("git commit" in r for r in perms.get("ask", [])))
+check("curl/wget require confirmation", any("curl" in r for r in perms.get("ask", [])))
+check("attribution suppressed", attr.get("commit") == "" and attr.get("pr") == "")
 
 print(f"\n{'=' * 60}")
-print(f"OPTIMIZATION COMPLETE")
+print(f"   Startup context   : ~{g_tokens + p_tokens} tokens")
+print(f"   Skill bodies      : ~{skill_tokens} tokens, loaded on invocation")
+print(f"   Cheap exploration : haiku subagent, ~2x lower per-token price than Sonnet 5")
+
+if failures:
+    print(f"\nRESULT: {len(failures)} check(s) FAILED")
+    for item in failures:
+        print(f"  - {item}")
+    print("Nothing above is 'active' until these pass.")
+    sys.exit(1)
+
+print(f"\nRESULT: all checks passed")
 print(f"{'=' * 60}")
-print(f"   Startup context      : ~{g_tokens + p_tokens} tokens (target ≤ 800)")
-print(f"   Skills offloaded     : ~{skill_tokens} tokens (zero cost until invoked)")
-print(f"   Large file hook      : active (blocks files > 300 lines)")
-print(f"   Bash safety hook     : active (blocks git push, rm -rf, curl)")
-print(f"   Thinking cap         : MAX_THINKING_TOKENS=8000")
-print(f"   Cheap exploration    : haiku subagent at ~10x lower cost")
-print(f"   Git safety           : deny push, ask commit, attribution suppressed")
 EOF
 ```
 
-Produce a final savings summary. Cross-reference with the full [Token Optimization Table in the playbook §14](./claude-code-best-practice-playbook.md#14-token-optimization-table) for the complete list.
+Produce a final savings summary. Cross-reference with the full [Token Optimization Table in the playbook §14](https://github.com/papasega/claude-code-best-practice-playbook?tab=readme-ov-file#14-token-optimization-table) for the complete list.
 
-| Optimization lever                 | Mechanism                                | Estimated savings               |
-| ---------------------------------- | ---------------------------------------- | ------------------------------- |
-| CLAUDE.md < 200 lines              | Removed workflow bloat                   | 2,000-10,000 tokens/session     |
-| Skills on-demand                   | Zero cost at startup                     | 1,000-5,000 tokens/session      |
-| Large file hook (>300 lines)       | PreToolUse external script               | 10,000-50,000 tokens/session    |
-| Bash safety hook                   | PreToolUse blocks git push, rm -rf, curl | Prevents destructive operations |
-| `permissions.deny` git push      | Hard block on destructive git            | Prevents accidental pushes      |
-| `permissions.ask` git commit     | Human confirmation required              | Controlled git history          |
-| `attribution: {commit:"",pr:""}` | No Co-Authored-By in commits             | Clean git log                   |
-| `MAX_THINKING_TOKENS=8000`       | Cap thinking budget                      | 30-50% thinking token reduction |
-| `effortLevel: medium`            | No default deep reasoning                | Baseline efficiency             |
-| Haiku subagent exploration         | 10x cheaper model for research           | 80-90% on exploration calls     |
-| `/btw` for quick lookups         | Never enters conversation history        | 500-2,000 tokens/question       |
-| `/clear` between tasks           | Eliminate stale context                  | Variable, often largest gain    |
+The only figures below that this prompt actually measures are the byte counts it
+reports for your own `CLAUDE.md` and skills. Everything else is a mechanism whose
+effect depends on your workload, so it is stated as a mechanism, not as a number.
+
+| Optimization lever               | Mechanism                                             | Expected effect                       |
+| -------------------------------- | ----------------------------------------------------- | ------------------------------------- |
+| CLAUDE.md < 200 lines            | Smaller prompt prefix on every turn                   | Measured per file by Phase 1 and 6     |
+| Skills on-demand                 | Body loads on invocation; description stays resident  | Measured per skill by Phase 6          |
+| Large-file advisory hook         | PreToolUse suggestion, read still permitted           | Potential impact: workload-dependent   |
+| Bash safety hook                 | PreToolUse blocks known dangerous shapes              | Prevents some destructive commands     |
+| `permissions.deny` git push      | Hard block on destructive git                         | Prevents accidental pushes             |
+| `permissions.ask` git commit     | Human confirmation required                           | Controlled git history                 |
+| `permissions.ask` curl/wget      | Confirmation on explicit shell network access         | Narrow control, not an egress policy   |
+| `attribution: {commit:"",pr:""}` | No Co-Authored-By in commits                          | Clean git log                          |
+| Effort level                     | `high` is the default; `medium` trades capability for spend | Hypothesis to validate per task type |
+| Haiku subagent for exploration   | ~2x lower per-token price, isolated context window    | Measure with representative tasks      |
+| `/btw` for quick lookups         | Never enters conversation history                     | Potential impact: workload-dependent   |
+| `/clear` between tasks           | Eliminate stale context                               | Measure with representative tasks      |
 
 ---
 
 ## References
 
+- [Model pricing (authoritative, check before relying on any figure here)](https://platform.claude.com/docs/en/about-claude/pricing)
+- [Hooks reference — JSON output and decision control](https://code.claude.com/docs/en/hooks)
+- [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 - [Manage costs — Claude Code Docs](https://code.claude.com/docs/en/costs)
 - [Best practices — Claude Code Docs](https://code.claude.com/docs/en/best-practices)
 - [Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
